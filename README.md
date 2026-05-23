@@ -1,3 +1,5 @@
+![Meeting Recorder — record meetings in Obsidian, transcribe locally with Whisper, summarize with Claude](docs/images/hero.webp)
+
 # Meeting Recorder
 
 An Obsidian plugin that records meetings, transcribes them live with [Whisper](https://github.com/ggml-org/whisper.cpp), and generates a structured summary with [Claude](https://claude.com/claude-code) — all locally, in the current note.
@@ -9,9 +11,6 @@ Works on **macOS** and **Windows** (desktop only).
 Insert a recorder into any note via the command palette → **Insert Meeting Recorder**, hit **Record**, talk. While you record, Whisper transcribes chunks every 30s and writes them straight into the note. On **Stop**, the transcript is folded into a `> [!quote]- Transcript` callout and Claude appends a summary with action items, decisions, and notes.
 
 Works especially well dropped into a meeting template — the recorder lives in the note itself, so each new meeting starts ready to go.
-
-![Empty meeting note with the recorder panel](docs/images/before.webp)
-![Same note after recording, with notes and transcript](docs/images/after.webp)
 
 ## Install
 
