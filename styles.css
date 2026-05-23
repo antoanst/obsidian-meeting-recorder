@@ -1,0 +1,265 @@
+/* ── Panel container ── */
+.mr-panel {
+	margin: 8px 0 16px;
+	padding: 12px 16px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	background: var(--background-secondary);
+	max-width: var(--file-line-width);
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.mr-panel-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* ── Buttons ── */
+.mr-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 14px;
+	border: none;
+	border-radius: 6px;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background 0.15s, opacity 0.15s;
+	font-family: var(--font-interface);
+	white-space: nowrap;
+}
+
+.mr-btn:hover {
+	opacity: 0.85;
+}
+
+.mr-panel .mr-btn-record {
+	background: var(--text-error);
+	color: white;
+}
+
+.mr-record-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: white;
+	display: inline-block;
+}
+
+/* ── Record button loading spinner ── */
+.mr-record-spinner {
+	width: 12px;
+	height: 12px;
+	border: 2px solid rgba(255, 255, 255, 0.3);
+	border-top-color: white;
+	border-radius: 50%;
+	display: inline-block;
+	animation: mr-spin 0.6s linear infinite;
+}
+
+@keyframes mr-spin {
+	to { transform: rotate(360deg); }
+}
+
+.mr-btn[disabled] {
+	opacity: 0.7;
+	cursor: not-allowed;
+}
+
+.mr-panel .mr-btn-pause {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.mr-panel .mr-btn-stop {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.mr-stop-icon {
+	width: 10px;
+	height: 10px;
+	border-radius: 2px;
+	background: var(--text-error);
+	display: inline-block;
+}
+
+/* ── Pause icon (two bars) ── */
+.mr-pause-icon {
+	display: inline-flex;
+	gap: 2px;
+	align-items: center;
+}
+
+.mr-pause-bar {
+	width: 3px;
+	height: 10px;
+	border-radius: 1px;
+	background: currentColor;
+}
+
+/* ── Settings gear ── */
+.mr-settings-btn {
+	margin-left: auto;
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 4px;
+	display: flex;
+	align-items: center;
+	opacity: 0.35;
+	transition: opacity 0.15s;
+	flex-shrink: 0;
+	color: var(--text-muted);
+}
+
+.mr-settings-btn:hover {
+	opacity: 0.7;
+}
+
+/* ── Recording row: timer | waveform | controls | gear ── */
+.mr-recording-row {
+	gap: 12px;
+}
+
+.mr-controls {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+/* ── Waveform ── */
+.mr-waveform {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	height: 24px;
+	flex: 1;
+}
+
+.mr-waveform-bar {
+	width: 3px;
+	border-radius: 2px;
+	background: var(--text-error);
+	opacity: 0.7;
+	animation: mr-wave 0.8s ease-in-out infinite alternate;
+}
+
+/* Stagger the bars for a natural wave effect */
+.mr-waveform-bar:nth-child(1) { animation-delay: 0.00s; height: 6px; }
+.mr-waveform-bar:nth-child(2) { animation-delay: 0.05s; height: 10px; }
+.mr-waveform-bar:nth-child(3) { animation-delay: 0.10s; height: 16px; }
+.mr-waveform-bar:nth-child(4) { animation-delay: 0.15s; height: 8px; }
+.mr-waveform-bar:nth-child(5) { animation-delay: 0.20s; height: 20px; }
+.mr-waveform-bar:nth-child(6) { animation-delay: 0.25s; height: 12px; }
+.mr-waveform-bar:nth-child(7) { animation-delay: 0.30s; height: 6px; }
+.mr-waveform-bar:nth-child(8) { animation-delay: 0.35s; height: 18px; }
+.mr-waveform-bar:nth-child(9) { animation-delay: 0.40s; height: 10px; }
+.mr-waveform-bar:nth-child(10) { animation-delay: 0.45s; height: 22px; }
+.mr-waveform-bar:nth-child(11) { animation-delay: 0.50s; height: 8px; }
+.mr-waveform-bar:nth-child(12) { animation-delay: 0.55s; height: 14px; }
+.mr-waveform-bar:nth-child(13) { animation-delay: 0.60s; height: 6px; }
+.mr-waveform-bar:nth-child(14) { animation-delay: 0.65s; height: 20px; }
+.mr-waveform-bar:nth-child(15) { animation-delay: 0.70s; height: 10px; }
+.mr-waveform-bar:nth-child(16) { animation-delay: 0.75s; height: 16px; }
+.mr-waveform-bar:nth-child(17) { animation-delay: 0.80s; height: 8px; }
+.mr-waveform-bar:nth-child(18) { animation-delay: 0.85s; height: 22px; }
+.mr-waveform-bar:nth-child(19) { animation-delay: 0.90s; height: 12px; }
+.mr-waveform-bar:nth-child(20) { animation-delay: 0.95s; height: 6px; }
+.mr-waveform-bar:nth-child(21) { animation-delay: 1.00s; height: 18px; }
+.mr-waveform-bar:nth-child(22) { animation-delay: 1.05s; height: 10px; }
+.mr-waveform-bar:nth-child(23) { animation-delay: 1.10s; height: 14px; }
+.mr-waveform-bar:nth-child(24) { animation-delay: 1.15s; height: 8px; }
+
+@keyframes mr-wave {
+	0% { transform: scaleY(0.3); }
+	100% { transform: scaleY(1); }
+}
+
+/* Paused — bars freeze at low height */
+.mr-waveform-paused .mr-waveform-bar {
+	animation: none;
+	transform: scaleY(0.3);
+	opacity: 0.4;
+}
+
+/* ── Timer ── */
+.mr-timer {
+	font-size: 14px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	color: var(--text-muted);
+	min-width: 44px;
+	text-align: left;
+	flex-shrink: 0;
+}
+
+.mr-timer-paused {
+	opacity: 0.5;
+}
+
+/* ── Processing state ── */
+.mr-processing-row {
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.mr-spinner {
+	display: flex;
+	gap: 4px;
+	align-items: center;
+}
+
+.mr-spinner-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--text-accent);
+	animation: mr-bounce 1.2s ease-in-out infinite;
+}
+
+.mr-spinner-dot:nth-child(2) {
+	animation-delay: 0.15s;
+}
+
+.mr-spinner-dot:nth-child(3) {
+	animation-delay: 0.3s;
+}
+
+@keyframes mr-bounce {
+	0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+	30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.mr-processing-text {
+	font-size: 13px;
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+/* ── Progress bar ── */
+.mr-progress-track {
+	flex: 1;
+	height: 4px;
+	border-radius: 2px;
+	background: var(--background-modifier-border);
+	overflow: hidden;
+}
+
+.mr-progress-bar {
+	width: 30%;
+	height: 100%;
+	border-radius: 2px;
+	background: var(--text-accent);
+	animation: mr-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes mr-indeterminate {
+	0% { transform: translateX(-100%); width: 30%; }
+	50% { width: 50%; }
+	100% { transform: translateX(400%); width: 30%; }
+}

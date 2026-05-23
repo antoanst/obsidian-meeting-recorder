@@ -1,0 +1,9 @@
+{
+	"id": "meeting-recorder",
+	"name": "Meeting Recorder",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.0",
+	"description": "Record meetings, transcribe live, and generate summaries with Claude Code.",
+	"author": "Aell",
+	"isDesktopOnly": true
+}
