@@ -8,6 +8,11 @@ Works on **macOS** and **Windows** (desktop only).
 
 Insert a recorder into any note via the command palette → **Insert Meeting Recorder**, hit **Record**, talk. While you record, Whisper transcribes chunks every 30s and writes them straight into the note. On **Stop**, the transcript is folded into a `> [!quote]- Transcript` callout and Claude appends a summary with action items, decisions, and notes.
 
+Works especially well dropped into a meeting template — the recorder lives in the note itself, so each new meeting starts ready to go.
+
+![Empty meeting note with the recorder panel](docs/images/before.webp)
+![Same note after recording, with notes and transcript](docs/images/after.webp)
+
 ## Install
 
 1. Clone or download this repo.
