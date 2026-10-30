@@ -1,7 +1,6 @@
 import { Notice, TFile } from "obsidian";
 import type MeetingRecorderPlugin from "./main";
 import { AudioCapture } from "./audio";
-import { AudioSwitcher } from "./audio-switcher";
 import { Transcriber } from "./transcriber";
 import { Summarizer } from "./summarizer";
 
@@ -20,7 +19,6 @@ export class RecorderPanel {
 
 	// Audio & transcription
 	private audio: AudioCapture | null = null;
-	private audioSwitcher = new AudioSwitcher();
 	private transcriber: Transcriber | null = null;
 	private transcriptionTimer: number | null = null;
 	private isTranscribing = false;
@@ -196,25 +194,8 @@ export class RecorderPanel {
 			return;
 		}
 
-		// Switch audio output for system audio capture
-		if (s.audioInput !== "mic") {
-			try {
-				if (!(await this.audioSwitcher.isAvailable())) {
-					new Notice("SwitchAudioSource not found. Install: brew install switchaudio-osx");
-					this.transcriber = null;
-					return;
-				}
-				await this.audioSwitcher.engage(s.deviceMappings);
-			} catch (e: unknown) {
-				const msg = e instanceof Error ? e.message : "Failed to switch audio output";
-				new Notice(msg);
-				this.transcriber = null;
-				return;
-			}
-		}
-
-		// Start audio capture
-		this.audio = new AudioCapture();
+		// Start audio capture (may wait for the macOS system-audio permission prompt)
+		this.audio = new AudioCapture(this.plugin.tapBinaryPath());
 		try {
 			await this.audio.start(s.audioInput);
 		} catch (e: unknown) {
@@ -222,7 +203,7 @@ export class RecorderPanel {
 			new Notice(msg);
 			this.audio = null;
 			this.transcriber = null;
-			await this.audioSwitcher.restore();
+			this.render();
 			return;
 		}
 
@@ -254,10 +235,9 @@ export class RecorderPanel {
 		this.stopTranscriptionLoop();
 
 		try {
-			// Stop audio and restore device FIRST — guarantees cleanup
+			// Stop audio FIRST — guarantees cleanup
 			const remaining = await this.audio?.stop() ?? null;
 			this.audio = null;
-			await this.audioSwitcher.restore();
 
 			this.state = "processing";
 			this.render();
@@ -288,7 +268,6 @@ export class RecorderPanel {
 				await this.audio.stop();
 				this.audio = null;
 			}
-			await this.audioSwitcher.restore();
 
 			this.transcriber = null;
 			this.recordingFile = null;
@@ -308,7 +287,6 @@ export class RecorderPanel {
 		this.transcriber = null;
 		this.recordingFile = null;
 		this.fullTranscript = [];
-		await this.audioSwitcher.restore();
 	}
 
 	// ── Timer ──

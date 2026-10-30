@@ -15,7 +15,7 @@ Works especially well dropped into a meeting template — the recorder lives in 
 ## Install
 
 1. Clone or download this repo.
-2. Copy `main.js`, `manifest.json`, and `styles.css` into `<your-vault>/.obsidian/plugins/meeting-recorder/`.
+2. Copy `main.js`, `manifest.json`, and `styles.css` into `<your-vault>/.obsidian/plugins/meeting-recorder/`. On macOS also copy `meeting-tap` (the system-audio helper, built with `npm run build:native`).
 3. Enable **Meeting Recorder** in Obsidian → Settings → Community plugins.
 
 ## Prerequisites
@@ -32,7 +32,7 @@ For **system audio capture** (recording the other side of a call, not just your 
 
 | Platform | Tool | Install |
 |----------|------|---------|
-| macOS | [BlackHole](https://existential.audio/blackhole/) + a Multi-Output Device (Audio MIDI Setup) | `brew install blackhole-2ch` |
+| macOS 14.2+ | Bundled `meeting-tap` helper (Core Audio process tap) | Nothing to install |
 | Windows | [VB-CABLE](https://vb-audio.com/Cable/) | Download installer from VB-Audio |
 
 Mic-only recording works with no extra setup.
@@ -47,22 +47,27 @@ In Obsidian → Settings → **Meeting Recorder**:
 
 ### macOS — system audio
 
-Create a Multi-Output Device in Audio MIDI Setup that includes your real output (Speakers/AirPods) **and** BlackHole 2ch. Add a row under **Device mappings** that maps your output device name to that Multi-Output Device name. When you hit Record, the plugin switches your output to the Multi-Output Device and restores it on Stop.
+The plugin runs a small helper, `meeting-tap`, that records everything your Mac plays through a Core Audio process tap. Your output device is never changed, so you keep hearing the call on whatever speakers or headphones you picked, and it doesn't matter which speaker the meeting app is set to.
+
+The first time you record system audio, macOS asks whether Obsidian may record this computer's audio. Allow it. If you denied it, turn it on under System Settings → Privacy & Security → Screen & System Audio Recording.
+
+Upgrading from 0.2 or earlier: BlackHole, SwitchAudioSource and the Multi-Output Devices are no longer used and can be removed.
 
 ### Windows — system audio
 
 In Windows sound settings, set your **default playback device** to `CABLE Input (VB-Audio Virtual Cable)` before recording. To still hear the meeting, enable **Listen to this device** on the CABLE Input properties and route it to your real speakers — or use [VoiceMeeter](https://vb-audio.com/Voicemeeter/) for cleaner routing.
 
-The plugin captures from any input device whose name contains `blackhole`, `cable`, or `vb-audio`.
+The plugin captures from any input device whose name contains `cable` or `vb-audio`.
 
 ## Build from source
 
 ```bash
 npm install
 npm run build
+npm run build:native   # macOS: universal meeting-tap helper (needs Xcode command line tools)
 ```
 
-Outputs `main.js` next to `manifest.json` and `styles.css`.
+Outputs `main.js` and `meeting-tap` next to `manifest.json` and `styles.css`.
 
 ## License
 

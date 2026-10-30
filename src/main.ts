@@ -1,10 +1,13 @@
-import { Plugin } from "obsidian";
+import { FileSystemAdapter, Plugin } from "obsidian";
 import {
 	MeetingRecorderSettings,
 	DEFAULT_SETTINGS,
 	MeetingRecorderSettingTab,
 } from "./settings";
 import { RecorderPanel } from "./RecorderPanel";
+import { TAP_BINARY } from "./system-tap";
+
+const nodePath = require("path") as typeof import("path");
 
 export default class MeetingRecorderPlugin extends Plugin {
 	settings: MeetingRecorderSettings = DEFAULT_SETTINGS;
@@ -47,6 +50,14 @@ export default class MeetingRecorderPlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			await this.loadData()
 		);
+		// Left over from the BlackHole/Multi-Output setup (≤ 0.2).
+		delete (this.settings as unknown as Record<string, unknown>).deviceMappings;
+	}
+
+	/** Absolute path to the macOS system-audio helper shipped next to main.js. */
+	tapBinaryPath(): string {
+		const adapter = this.app.vault.adapter as FileSystemAdapter;
+		return nodePath.join(adapter.getBasePath(), this.manifest.dir ?? "", TAP_BINARY);
 	}
 
 	async saveSettings(): Promise<void> {

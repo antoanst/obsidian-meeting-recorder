@@ -1,11 +1,12 @@
 {
 	"name": "obsidian-meeting-recorder",
-	"version": "0.1.0",
+	"version": "0.3.0",
 	"description": "Record meetings in Obsidian, transcribe locally with Whisper, and summarize with Claude.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "node esbuild.config.mjs production"
+		"build": "node esbuild.config.mjs production",
+		"build:native": "sh native/build.sh"
 	},
 	"keywords": ["obsidian-plugin", "whisper", "transcription", "meeting"],
 	"license": "MIT",

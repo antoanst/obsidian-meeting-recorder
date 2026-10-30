@@ -3,18 +3,12 @@ import type MeetingRecorderPlugin from "./main";
 
 const IS_MAC = process.platform === "darwin";
 
-export interface DeviceMapping {
-	output: string;
-	multiOutput: string;
-}
-
 export interface MeetingRecorderSettings {
 	whisperModel: string;
 	whisperBinary: string;
 	whisperModelsDir: string;
 	claudeModel: string;
 	audioInput: "mic" | "system" | "both";
-	deviceMappings: DeviceMapping[];
 	transcriptionInterval: number;
 }
 
@@ -24,7 +18,6 @@ export const DEFAULT_SETTINGS: MeetingRecorderSettings = {
 	whisperModelsDir: "",
 	claudeModel: "sonnet",
 	audioInput: "mic",
-	deviceMappings: [],
 	transcriptionInterval: 30,
 };
 
@@ -137,13 +130,13 @@ export class MeetingRecorderSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName("Audio").setHeading();
 
-		const cableName = IS_MAC ? "BlackHole" : "VB-CABLE";
-
 		new Setting(containerEl)
 			.setName("Audio input")
 			.setDesc(
-				`What audio to capture. "System" and "both" require ${cableName} ` +
-				`(see README).`
+				IS_MAC
+					? `What audio to capture. "System" and "both" record everything your Mac ` +
+						`plays (macOS 14.2+; macOS asks once for System Audio Recording permission).`
+					: `What audio to capture. "System" and "both" require VB-CABLE (see README).`
 			)
 			.addDropdown((dropdown) =>
 				dropdown
@@ -158,30 +151,6 @@ export class MeetingRecorderSettingTab extends PluginSettingTab {
 						}
 					)
 			);
-
-		// Device-mapping auto-switching is macOS-only (uses SwitchAudioSource).
-		// On Windows the user sets their default playback to VB-CABLE manually.
-		if (IS_MAC) {
-			new Setting(containerEl)
-				.setName("Device mappings")
-				.setDesc(
-					"Map each output device to its Multi-Output Device (with BlackHole). " +
-					"On record, the plugin detects your current output and switches to the matching Multi-Output Device."
-				);
-
-			this.renderDeviceMappings(containerEl);
-
-			new Setting(containerEl).addButton((btn) =>
-				btn.setButtonText("+ Add mapping").onClick(async () => {
-					this.plugin.settings.deviceMappings.push({
-						output: "",
-						multiOutput: "",
-					});
-					await this.plugin.saveSettings();
-					this.display();
-				})
-			);
-		}
 
 		// ── Claude ──
 
@@ -201,40 +170,5 @@ export class MeetingRecorderSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
-	}
-
-	private renderDeviceMappings(containerEl: HTMLElement): void {
-		const mappings = this.plugin.settings.deviceMappings;
-
-		for (let i = 0; i < mappings.length; i++) {
-			const mapping = mappings[i];
-
-			new Setting(containerEl)
-				.addText((text) =>
-					text
-						.setPlaceholder("Output device")
-						.setValue(mapping.output)
-						.onChange(async (value) => {
-							mapping.output = value;
-							await this.plugin.saveSettings();
-						})
-				)
-				.addText((text) =>
-					text
-						.setPlaceholder("Multi-Output Device")
-						.setValue(mapping.multiOutput)
-						.onChange(async (value) => {
-							mapping.multiOutput = value;
-							await this.plugin.saveSettings();
-						})
-				)
-				.addExtraButton((btn) =>
-					btn.setIcon("trash").onClick(async () => {
-						mappings.splice(i, 1);
-						await this.plugin.saveSettings();
-						this.display();
-					})
-				);
-		}
 	}
 }

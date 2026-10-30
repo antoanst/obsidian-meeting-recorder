@@ -33,7 +33,6 @@ var DEFAULT_SETTINGS = {
   whisperModelsDir: "",
   claudeModel: "sonnet",
   audioInput: "mic",
-  deviceMappings: [],
   transcriptionInterval: 30
 };
 var MeetingRecorderSettingTab = class extends import_obsidian.PluginSettingTab {
@@ -67,9 +66,9 @@ var MeetingRecorderSettingTab = class extends import_obsidian.PluginSettingTab {
     if (IS_MAC) {
       modelsDirSetting.addButton(
         (btn) => btn.setButtonText("Choose folder").onClick(async () => {
-          const { execFile: execFile4 } = require("child_process");
+          const { execFile: execFile3 } = require("child_process");
           const script = 'POSIX path of (choose folder with prompt "Select whisper models directory")';
-          execFile4(
+          execFile3(
             "osascript",
             ["-e", script],
             (err, stdout) => {
@@ -98,9 +97,8 @@ var MeetingRecorderSettingTab = class extends import_obsidian.PluginSettingTab {
       })
     );
     new import_obsidian.Setting(containerEl).setName("Audio").setHeading();
-    const cableName = IS_MAC ? "BlackHole" : "VB-CABLE";
     new import_obsidian.Setting(containerEl).setName("Audio input").setDesc(
-      `What audio to capture. "System" and "both" require ${cableName} (see README).`
+      IS_MAC ? `What audio to capture. "System" and "both" record everything your Mac plays (macOS 14.2+; macOS asks once for System Audio Recording permission).` : `What audio to capture. "System" and "both" require VB-CABLE (see README).`
     ).addDropdown(
       (dropdown) => dropdown.addOption("mic", "Microphone only").addOption("system", "System audio only").addOption("both", "Both (mic + system)").setValue(this.plugin.settings.audioInput).onChange(
         async (value) => {
@@ -109,22 +107,6 @@ var MeetingRecorderSettingTab = class extends import_obsidian.PluginSettingTab {
         }
       )
     );
-    if (IS_MAC) {
-      new import_obsidian.Setting(containerEl).setName("Device mappings").setDesc(
-        "Map each output device to its Multi-Output Device (with BlackHole). On record, the plugin detects your current output and switches to the matching Multi-Output Device."
-      );
-      this.renderDeviceMappings(containerEl);
-      new import_obsidian.Setting(containerEl).addButton(
-        (btn) => btn.setButtonText("+ Add mapping").onClick(async () => {
-          this.plugin.settings.deviceMappings.push({
-            output: "",
-            multiOutput: ""
-          });
-          await this.plugin.saveSettings();
-          this.display();
-        })
-      );
-    }
     new import_obsidian.Setting(containerEl).setName("Claude").setHeading();
     new import_obsidian.Setting(containerEl).setName("Summary model").setDesc("Claude model for generating meeting summaries.").addDropdown(
       (dropdown) => dropdown.addOption("sonnet", "Sonnet (recommended)").addOption("opus", "Opus (complex meetings)").addOption("haiku", "Haiku (fast, shorter)").setValue(this.plugin.settings.claudeModel).onChange(async (value) => {
@@ -133,29 +115,6 @@ var MeetingRecorderSettingTab = class extends import_obsidian.PluginSettingTab {
       })
     );
   }
-  renderDeviceMappings(containerEl) {
-    const mappings = this.plugin.settings.deviceMappings;
-    for (let i = 0; i < mappings.length; i++) {
-      const mapping = mappings[i];
-      new import_obsidian.Setting(containerEl).addText(
-        (text) => text.setPlaceholder("Output device").setValue(mapping.output).onChange(async (value) => {
-          mapping.output = value;
-          await this.plugin.saveSettings();
-        })
-      ).addText(
-        (text) => text.setPlaceholder("Multi-Output Device").setValue(mapping.multiOutput).onChange(async (value) => {
-          mapping.multiOutput = value;
-          await this.plugin.saveSettings();
-        })
-      ).addExtraButton(
-        (btn) => btn.setIcon("trash").onClick(async () => {
-          mappings.splice(i, 1);
-          await this.plugin.saveSettings();
-          this.display();
-        })
-      );
-    }
-  }
 };
 
 // src/RecorderPanel.ts
@@ -163,73 +122,243 @@ var import_obsidian3 = require("obsidian");
 
 // src/audio.ts
 var import_obsidian2 = require("obsidian");
-var VIRTUAL_CABLE_HINTS = ["blackhole", "cable", "vb-audio"];
-var AudioCapture = class {
+
+// src/system-tap.ts
+var { spawn } = require("child_process");
+var fs = require("fs");
+var os = require("os");
+var TAP_BINARY = "meeting-tap";
+var EXIT_PERMISSION_DENIED = 3;
+var PERMISSION_MESSAGE = "Obsidian isn't allowed to record system audio. Allow it in System Settings \u2192 Privacy & Security \u2192 Screen & System Audio Recording, then try again.";
+function tapSupported() {
+  if (process.platform !== "darwin") return false;
+  const [major, minor] = os.release().split(".").map(Number);
+  return major > 23 || major === 23 && minor >= 2;
+}
+var SystemTap = class {
+  /**
+   * @param binary   Absolute path to the helper.
+   * @param rate     Output sample rate.
+   * @param onSamples Called with each block of samples as it arrives.
+   * @param onLost   Called if the helper dies mid-recording.
+   */
+  constructor(binary, rate, onSamples, onLost) {
+    this.binary = binary;
+    this.rate = rate;
+    this.onSamples = onSamples;
+    this.onLost = onLost;
+    this.child = null;
+    this.pending = Buffer.alloc(0);
+    this.stopping = false;
+  }
+  /** Resolves once the helper reports it is capturing (after any permission prompt). */
+  start() {
+    try {
+      fs.chmodSync(this.binary, 493);
+    } catch (e) {
+      return Promise.reject(
+        new Error(`System audio helper not found: ${this.binary}`)
+      );
+    }
+    return new Promise((resolve, reject) => {
+      let ready = false;
+      let lastError = "";
+      let stderrLine = "";
+      const child = spawn(this.binary, ["--rate", String(this.rate)], {
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      this.child = child;
+      child.stdout.on("data", (data) => this.handleAudio(data));
+      child.stderr.on("data", (data) => {
+        var _a, _b;
+        const lines = (stderrLine + data.toString()).split("\n");
+        stderrLine = (_a = lines.pop()) != null ? _a : "";
+        for (const line of lines) {
+          let event;
+          try {
+            event = JSON.parse(line);
+          } catch (e) {
+            continue;
+          }
+          if (event.event === "ready" && !ready) {
+            ready = true;
+            resolve();
+          } else if (event.event === "error") {
+            lastError = (_b = event.message) != null ? _b : "";
+          }
+        }
+      });
+      child.on("error", (err) => {
+        this.child = null;
+        if (!ready) reject(err);
+      });
+      child.on("exit", (code) => {
+        this.child = null;
+        const message = code === EXIT_PERMISSION_DENIED ? PERMISSION_MESSAGE : `System audio capture stopped${lastError ? `: ${lastError}` : ""}`;
+        if (!ready) reject(new Error(message));
+        else if (!this.stopping) this.onLost(message);
+      });
+    });
+  }
+  /** Stop the helper and wait for it to exit (force-kills after 3 s). */
+  async stop() {
+    const child = this.child;
+    if (!child) return;
+    this.stopping = true;
+    await new Promise((resolve) => {
+      const force = window.setTimeout(() => child.kill("SIGKILL"), 3e3);
+      child.once("exit", () => {
+        window.clearTimeout(force);
+        resolve();
+      });
+      child.kill("SIGTERM");
+    });
+    this.pending = Buffer.alloc(0);
+  }
+  /** stdout chunks can split a 4-byte sample; carry the remainder over. */
+  handleAudio(data) {
+    const buf = this.pending.length ? Buffer.concat([this.pending, data]) : data;
+    const usable = buf.length - buf.length % 4;
+    this.pending = buf.subarray(usable);
+    if (usable === 0) return;
+    const bytes = new Uint8Array(usable);
+    bytes.set(buf.subarray(0, usable));
+    this.onSamples(new Float32Array(bytes.buffer));
+  }
+};
+
+// src/audio.ts
+var VIRTUAL_CABLE_HINTS = ["cable", "vb-audio"];
+var IS_MAC2 = process.platform === "darwin";
+var MIX_GAIN = 0.7;
+var MAX_SKEW_SECONDS = 2;
+var SampleQueue = class {
   constructor() {
+    this.chunks = [];
+    this.length = 0;
+  }
+  push(chunk) {
+    this.chunks.push(chunk);
+    this.length += chunk.length;
+  }
+  /** Remove and return the first n samples, zero-padded if fewer are queued. */
+  take(n) {
+    const out = new Float32Array(n);
+    let off = 0;
+    while (off < n && this.chunks.length > 0) {
+      const head = this.chunks[0];
+      const k = Math.min(head.length, n - off);
+      out.set(head.subarray(0, k), off);
+      off += k;
+      if (k === head.length) this.chunks.shift();
+      else this.chunks[0] = head.subarray(k);
+    }
+    this.length -= Math.min(n, this.length);
+    return out;
+  }
+  /** Drop all but the newest n samples. */
+  keepLast(n) {
+    if (this.length > n) this.take(this.length - n);
+  }
+};
+var AudioCapture = class {
+  /** @param tapBinary Absolute path to the macOS `meeting-tap` helper. */
+  constructor(tapBinary) {
+    this.tapBinary = tapBinary;
     this.context = null;
     this.streams = [];
     this.processor = null;
-    this.buffer = [];
+    this.tap = null;
+    this.paused = false;
+    /** Web Audio graph output: mic, or (Windows) mic/cable mix. */
+    this.webQueue = new SampleQueue();
+    this.hasWebAudio = false;
+    /** macOS system audio from the tap helper. */
+    this.tapQueue = new SampleQueue();
+    this.hasTap = false;
+    this.aligned = false;
     this.sampleRate = 16e3;
   }
   async start(mode) {
+    try {
+      await this.open(mode);
+    } catch (e) {
+      await this.stop();
+      throw e;
+    }
+  }
+  async open(mode) {
+    const wantsSystem = mode !== "mic";
+    const wantsMic = mode !== "system";
+    if (wantsSystem && IS_MAC2) {
+      if (!tapSupported()) {
+        throw new Error("System audio capture needs macOS 14.2 or later");
+      }
+      this.tap = new SystemTap(
+        this.tapBinary,
+        this.sampleRate,
+        (samples) => {
+          if (!this.paused) this.tapQueue.push(samples);
+        },
+        (message) => new import_obsidian2.Notice(`${message} \u2014 recording continues with the microphone only`)
+      );
+      this.hasTap = true;
+      await this.tap.start();
+    }
+    const sources = [];
+    if (wantsMic) {
+      sources.push(await navigator.mediaDevices.getUserMedia({ audio: true }));
+    }
+    if (wantsSystem && !IS_MAC2) {
+      sources.push(await this.virtualCableStream());
+    }
+    if (sources.length === 0) return;
     this.context = new AudioContext({ sampleRate: this.sampleRate });
+    this.streams = sources;
     let source;
-    if (mode === "both") {
-      const mic = await navigator.mediaDevices.getUserMedia({
-        audio: true
-      });
-      const cable = await this.virtualCableStream();
-      this.streams = [mic, cable];
+    if (sources.length > 1) {
       const mixer = this.context.createGain();
-      mixer.gain.value = 0.7;
-      this.context.createMediaStreamSource(mic).connect(mixer);
-      this.context.createMediaStreamSource(cable).connect(mixer);
+      mixer.gain.value = MIX_GAIN;
+      for (const s of sources) {
+        this.context.createMediaStreamSource(s).connect(mixer);
+      }
       source = mixer;
-    } else if (mode === "system") {
-      const cable = await this.virtualCableStream();
-      this.streams = [cable];
-      source = this.context.createMediaStreamSource(cable);
     } else {
-      const mic = await navigator.mediaDevices.getUserMedia({
-        audio: true
-      });
-      this.streams = [mic];
-      source = this.context.createMediaStreamSource(mic);
+      source = this.context.createMediaStreamSource(sources[0]);
     }
     this.processor = this.context.createScriptProcessor(4096, 1, 1);
     this.processor.onaudioprocess = (e) => {
-      this.buffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      const chunk = new Float32Array(e.inputBuffer.getChannelData(0));
+      if (!this.aligned) {
+        this.tapQueue.keepLast(chunk.length);
+        this.aligned = true;
+      }
+      this.webQueue.push(chunk);
     };
     source.connect(this.processor);
     this.processor.connect(this.context.destination);
+    this.hasWebAudio = true;
   }
   pause() {
     var _a;
+    this.paused = true;
     (_a = this.context) == null ? void 0 : _a.suspend();
   }
   resume() {
     var _a;
+    this.paused = false;
     (_a = this.context) == null ? void 0 : _a.resume();
   }
   /** Return accumulated samples since last drain, or null if empty. */
   drain() {
-    if (this.buffer.length === 0) return null;
-    const total = this.buffer.reduce((n, a) => n + a.length, 0);
-    const out = new Float32Array(total);
-    let off = 0;
-    for (const chunk of this.buffer) {
-      out.set(chunk, off);
-      off += chunk.length;
-    }
-    this.buffer = [];
-    return out;
+    return this.collect(false);
   }
   /** Stop capture and return any remaining samples. */
   async stop() {
-    var _a;
-    const remaining = this.drain();
-    (_a = this.processor) == null ? void 0 : _a.disconnect();
+    var _a, _b;
+    await ((_a = this.tap) == null ? void 0 : _a.stop());
+    this.tap = null;
+    (_b = this.processor) == null ? void 0 : _b.disconnect();
     this.processor = null;
     for (const s of this.streams) {
       s.getTracks().forEach((t) => t.stop());
@@ -239,7 +368,28 @@ var AudioCapture = class {
       await this.context.close();
       this.context = null;
     }
-    return remaining;
+    return this.collect(true);
+  }
+  /** Pull mixed samples from the active sources. `flush` takes everything. */
+  collect(flush) {
+    const web = this.webQueue;
+    const tap = this.tapQueue;
+    const mixing = this.hasWebAudio && this.hasTap;
+    let n;
+    if (!mixing) {
+      n = this.hasWebAudio ? web.length : tap.length;
+    } else {
+      const lo = Math.min(web.length, tap.length);
+      const hi = Math.max(web.length, tap.length);
+      const maxSkew = MAX_SKEW_SECONDS * this.sampleRate;
+      n = flush || hi - lo > maxSkew ? hi : lo;
+    }
+    if (n === 0) return null;
+    if (!mixing) return (this.hasWebAudio ? web : tap).take(n);
+    const out = web.take(n);
+    const sys = tap.take(n);
+    for (let i = 0; i < n; i++) out[i] = (out[i] + sys[i]) * MIX_GAIN;
+    return out;
   }
   async virtualCableStream() {
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -249,94 +399,13 @@ var AudioCapture = class {
       )
     );
     if (!cable) {
-      const tool = process.platform === "win32" ? "VB-CABLE" : "BlackHole";
       new import_obsidian2.Notice(
-        `Virtual audio cable not found. Install ${tool} for system audio capture.`
+        "Virtual audio cable not found. Install VB-CABLE for system audio capture."
       );
       throw new Error("Virtual audio cable not found");
     }
     return navigator.mediaDevices.getUserMedia({
       audio: { deviceId: { exact: cable.deviceId } }
-    });
-  }
-};
-
-// src/audio-switcher.ts
-var { execFile } = require("child_process");
-var os = require("os");
-var IS_MAC2 = process.platform === "darwin";
-function shellEnv() {
-  const home = os.homedir();
-  const PATH = [
-    process.env.PATH,
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-    `${home}/.local/bin`
-  ].filter(Boolean).join(":");
-  return { ...process.env, PATH };
-}
-var AudioSwitcher = class {
-  constructor() {
-    this.previousDevice = null;
-  }
-  /**
-   * Detect current output, find the matching Multi-Output Device
-   * from mappings, and switch to it. No-op on non-macOS.
-   */
-  async engage(mappings) {
-    if (!IS_MAC2) return;
-    this.previousDevice = await this.getCurrentDevice();
-    const match = mappings.find(
-      (m) => this.previousDevice.toLowerCase().includes(m.output.toLowerCase())
-    );
-    if (!match) {
-      throw new Error(
-        `No device mapping found for "${this.previousDevice}". Add a mapping in Meeting Recorder settings.`
-      );
-    }
-    if (this.previousDevice === match.multiOutput) return;
-    await this.setDevice(match.multiOutput);
-  }
-  /** Restore the original output device. No-op on non-macOS. */
-  async restore() {
-    if (!IS_MAC2) return;
-    if (!this.previousDevice) return;
-    await this.setDevice(this.previousDevice);
-    this.previousDevice = null;
-  }
-  /** Check if SwitchAudioSource is available. Always true on non-macOS. */
-  async isAvailable() {
-    if (!IS_MAC2) return true;
-    return new Promise((resolve) => {
-      execFile("SwitchAudioSource", ["-c"], { env: shellEnv() }, (err) => {
-        resolve(!err || err.code !== "ENOENT");
-      });
-    });
-  }
-  getCurrentDevice() {
-    return new Promise((resolve, reject) => {
-      execFile(
-        "SwitchAudioSource",
-        ["-c"],
-        { env: shellEnv() },
-        (err, stdout) => {
-          if (err) reject(err);
-          else resolve(stdout.trim());
-        }
-      );
-    });
-  }
-  setDevice(name) {
-    return new Promise((resolve, reject) => {
-      execFile(
-        "SwitchAudioSource",
-        ["-s", name],
-        { env: shellEnv() },
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
     });
   }
 };
@@ -371,11 +440,11 @@ function encodeWav(samples, sampleRate) {
 }
 
 // src/transcriber.ts
-var { execFile: execFile2 } = require("child_process");
-var fs = require("fs");
+var { execFile } = require("child_process");
+var fs2 = require("fs");
 var nodePath = require("path");
 var os2 = require("os");
-function shellEnv2() {
+function shellEnv() {
   const home = os2.homedir();
   const extra = process.platform === "win32" ? [] : ["/usr/local/bin", "/opt/homebrew/bin", `${home}/.local/bin`];
   const sep = process.platform === "win32" ? ";" : ":";
@@ -401,12 +470,12 @@ var Transcriber = class {
       return "Whisper models directory not set (see Meeting Recorder settings)";
     }
     try {
-      fs.accessSync(this.modelPath, fs.constants.R_OK);
+      fs2.accessSync(this.modelPath, fs2.constants.R_OK);
     } catch (e) {
       return `Model file not found: ${this.modelPath}`;
     }
     return new Promise((resolve) => {
-      execFile2(this.binary, ["--help"], { env: shellEnv2() }, (err) => {
+      execFile(this.binary, ["--help"], { env: shellEnv() }, (err) => {
         if ((err == null ? void 0 : err.code) === "ENOENT") {
           resolve(`Whisper binary not found: ${this.binary}`);
         } else {
@@ -422,9 +491,9 @@ var Transcriber = class {
     const wavFile = prefix + ".wav";
     const txtFile = prefix + ".txt";
     try {
-      fs.writeFileSync(wavFile, wav);
+      fs2.writeFileSync(wavFile, wav);
       await new Promise((resolve, reject) => {
-        execFile2(
+        execFile(
           this.binary,
           [
             "-m",
@@ -436,18 +505,18 @@ var Transcriber = class {
             "-of",
             prefix
           ],
-          { timeout: 12e4, env: shellEnv2() },
+          { timeout: 12e4, env: shellEnv() },
           (err) => err ? reject(err) : resolve()
         );
       });
-      return fs.readFileSync(txtFile, "utf-8").trim();
+      return fs2.readFileSync(txtFile, "utf-8").trim();
     } finally {
       try {
-        fs.unlinkSync(wavFile);
+        fs2.unlinkSync(wavFile);
       } catch (e) {
       }
       try {
-        fs.unlinkSync(txtFile);
+        fs2.unlinkSync(txtFile);
       } catch (e) {
       }
     }
@@ -455,7 +524,7 @@ var Transcriber = class {
 };
 
 // src/summarizer.ts
-var { execFile: execFile3 } = require("child_process");
+var { execFile: execFile2 } = require("child_process");
 var os3 = require("os");
 var NEEDS_SHELL = process.platform === "win32";
 var SUMMARY_PROMPT = `Summarize this meeting transcript. Output ONLY markdown \u2014 no preamble, no explanation, no closing.
@@ -482,7 +551,7 @@ var Summarizer = class {
   /** Check if claude CLI is available. */
   async isAvailable() {
     return new Promise((resolve) => {
-      execFile3(
+      execFile2(
         "claude",
         ["--version"],
         { env: this.env(), timeout: 5e3, shell: NEEDS_SHELL },
@@ -496,7 +565,7 @@ var Summarizer = class {
   async summarize(transcript) {
     return new Promise((resolve, reject) => {
       var _a, _b;
-      const proc = execFile3(
+      const proc = execFile2(
         "claude",
         ["--print", "--model", this.model],
         {
@@ -546,7 +615,6 @@ var RecorderPanel = class {
     this.timerEl = null;
     // Audio & transcription
     this.audio = null;
-    this.audioSwitcher = new AudioSwitcher();
     this.transcriber = null;
     this.transcriptionTimer = null;
     this.isTranscribing = false;
@@ -685,22 +753,7 @@ var RecorderPanel = class {
       this.transcriber = null;
       return;
     }
-    if (s.audioInput !== "mic") {
-      try {
-        if (!await this.audioSwitcher.isAvailable()) {
-          new import_obsidian3.Notice("SwitchAudioSource not found. Install: brew install switchaudio-osx");
-          this.transcriber = null;
-          return;
-        }
-        await this.audioSwitcher.engage(s.deviceMappings);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "Failed to switch audio output";
-        new import_obsidian3.Notice(msg);
-        this.transcriber = null;
-        return;
-      }
-    }
-    this.audio = new AudioCapture();
+    this.audio = new AudioCapture(this.plugin.tapBinaryPath());
     try {
       await this.audio.start(s.audioInput);
     } catch (e) {
@@ -708,7 +761,7 @@ var RecorderPanel = class {
       new import_obsidian3.Notice(msg);
       this.audio = null;
       this.transcriber = null;
-      await this.audioSwitcher.restore();
+      this.render();
       return;
     }
     this.state = "recording";
@@ -740,7 +793,6 @@ var RecorderPanel = class {
     try {
       const remaining = (_b = await ((_a = this.audio) == null ? void 0 : _a.stop())) != null ? _b : null;
       this.audio = null;
-      await this.audioSwitcher.restore();
       this.state = "processing";
       this.render();
       if (remaining && remaining.length > 0 && this.transcriber) {
@@ -760,7 +812,6 @@ var RecorderPanel = class {
         await this.audio.stop();
         this.audio = null;
       }
-      await this.audioSwitcher.restore();
       this.transcriber = null;
       this.recordingFile = null;
       this.fullTranscript = [];
@@ -778,7 +829,6 @@ var RecorderPanel = class {
     this.transcriber = null;
     this.recordingFile = null;
     this.fullTranscript = [];
-    await this.audioSwitcher.restore();
   }
   // ── Timer ──
   startTimer() {
@@ -911,6 +961,7 @@ ${lines.join("\n")}`;
 };
 
 // src/main.ts
+var nodePath2 = require("path");
 var MeetingRecorderPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
@@ -946,6 +997,13 @@ var MeetingRecorderPlugin = class extends import_obsidian4.Plugin {
       DEFAULT_SETTINGS,
       await this.loadData()
     );
+    delete this.settings.deviceMappings;
+  }
+  /** Absolute path to the macOS system-audio helper shipped next to main.js. */
+  tapBinaryPath() {
+    var _a;
+    const adapter = this.app.vault.adapter;
+    return nodePath2.join(adapter.getBasePath(), (_a = this.manifest.dir) != null ? _a : "", TAP_BINARY);
   }
   async saveSettings() {
     await this.saveData(this.settings);
